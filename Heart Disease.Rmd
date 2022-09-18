@@ -1,0 +1,181 @@
+---
+title: "LBB Classification Machine Learning I - Heart Disease"
+author: "Rizki"
+date: "5/29/2022"
+output: 
+  html_document :
+    number_sections: true
+    toc: true
+    toc_depth: 3
+    toc_float:
+      collapsed: false
+    df_print: paged
+    theme: united
+    highlight: breezedark
+  pdf_document:
+    latex_engine: xelatex
+---
+# Intro
+In this case study, I will try to predict whether heart disease patients in a hospital will predict heart disease or not based on the categories of several supporting variables. The algorithm that I will use is to use logistic regression and k-nearest neighbor which is included in supervised learning.
+
+## Load Library & Read Data
+```{r, warning=FALSE, message=FALSE}
+library(dplyr)
+library(gtools)
+library(caret)
+library(ggplot2)
+library(class)
+library(tidyr)
+```
+
+```{r}
+heart <- read.csv("heart_2020_cleaned.csv")
+head(heart)
+```
+Description : 
+`HeartDisease`: Respondents that have ever reported having coronary heart disease (CHD) or myocardial infarction (MI).
+`BMI`: Body Mass Index (BMI).
+`Smoking`: Have you smoked at least 100 cigarettes in your entire life?
+`AlcoholDrinking`: Heavy drinkers (adult men having more than 14 drinks per week and adult women having more than 7 drinks per week
+`Stroke`: (Ever told) (you had) a stroke?
+`PhysicalHealth`: Now thinking about your physical health, which includes physical illness and injury, for how many days during the past 30 days was your physical health not good? (0-30 days).
+`MentalHealth`: Thinking about your mental health, for how many days during the past 30 days was your mental health not good? (0-30 days).
+`DiffWalking`: Do you have serious difficulty walking or climbing stairs?
+`Sex`: Are you male or female?
+`AgeCategory`: Fourteen-level age category. (then calculated the mean)
+`Race`: Imputed race/ethnicity value.
+`Diabetic`: (Ever told) (you had) diabetes?
+`PhysicalActivity`: Adults who reported doing physical activity or exercise during the past 30 days other than their regular job.
+`GenHealth`: Would you say that in general your health is...
+`SleepTime`: On average, how many hours of sleep do you get in a 24-hour period?
+`Asthma`: (Ever told) (you had) asthma?
+`KidneyDisease`: Not including kidney stones, bladder infection or incontinence, were you ever told you had kidney disease?
+`SkinCancer`: (Ever told) (you had) skin cancer?
+
+# Data Manipulation
+## Data Type
+```{r}
+str(heart)
+```
+Change data type to factor(because it belongs to the category) -> HeartDisease, Smoking, AlcoholDrinking, Stroke, DiffWalking, Sex, AgeCategory, Race, Diabetic, PhysicalActivity, GenHealth, Asthma, KidneyDisease, SkinCancer
+```{r}
+heart <- heart %>% 
+  mutate_if(is.character, as.factor)
+
+str(heart)
+```
+Good, now the data type is correct
+
+## Check Missing Values
+```{r}
+colSums(is.na(heart))
+```
+Good, we don't have missing values
+
+# Cross Validation
+Next, we divide the data into train data and test data. Train data is used to train the model you want to use. Then the test data is used to test the model used in the data train
+```{r, warning=FALSE, message=FALSE}
+library(rsample)
+RNGkind(sample.kind="Rounding")
+set.seed(100)
+
+index <- sample(nrow(heart), size = nrow(heart)*0.8)
+
+heart_train <- heart[index,]
+heart_test <- heart[-index,]
+```
+## Balance Target Variable in Train Data
+```{r}
+prop.table(table(heart_train$HeartDisease))
+```
+
+```{r,warning=FALSE,message=FALSE}
+RNGkind(sample.kind = "Rounding")
+set.seed(100)
+
+heart_train_balance <- upSample(x = heart_train %>% 
+                                   select(-HeartDisease),
+                                 y = heart_train$HeartDisease,
+                                 yname = "HeartDisease")
+table(heart_train_balance$HeartDisease)
+```
+Good, now the proportion of target variables in the data train is balanced
+
+# Logistic Regression
+## Build Model
+We will do the modeling using logistic regression
+```{r}
+model_heart1 <- glm(HeartDisease~., data = heart_train_balance, family="binomial")
+```
+
+```{r}
+summary(model_heart1)
+```
+
+## Predict
+```{r}
+heart_test$prediction <- predict(model_heart1, newdata = heart_test, type = "response")
+```
+After that, we label the prediction results and change the data type to factor
+```{r}
+heart_test$prediction_label <- ifelse(heart_test$prediction > 0.5, "Yes", "No")
+heart_test <- heart_test %>% mutate(prediction_label = as.factor(prediction_label))
+```
+
+```{r}
+heart_test[c("prediction","prediction_label")]
+```
+In the prediction above, the yes label indicates that you have heart disease while no does not have heart disease
+
+## Model Evaluation
+We will evaluate the model using confusion matrix
+```{r}
+confusionMatrix(data = heart_test$prediction_label, reference = heart_test$HeartDisease, positive = "Yes")
+```
+Description : 
+Accuracy = 75 %
+Sensitivity / Recall = 78,5 % -> 79 %
+Pos Pred Value / Precision = 21,8 % -> 22 %
+Specificity = 74,7 % -> 75 %
+
+#  K-Nearest Neighbor
+## Cross Validation
+First, we split the data into train data and test data
+```{r}
+heart_x_train <- heart_train_balance %>% 
+  select_if(is.numeric)
+heart_y_train <- heart_train_balance %>% 
+  select(HeartDisease)
+  
+
+heart_x_test <- heart_test %>% 
+  select_if(is.numeric)
+heart_y_test <- heart_test %>% 
+  select(HeartDisease)
+```
+## Build Model
+After that we do the scaling on the data
+```{r}
+heart_x_train_scaled <-  scale(heart_x_train)
+heart_x_test_scaled <- scale(heart_x_test %>% select(-prediction),
+                             center =  attr(heart_x_train_scaled, "scaled:center"),
+                             scale = attr(heart_x_train_scaled, "scaled:scale"))
+```
+Then we do the selection of the value of k
+```{r}
+sqrt(nrow(heart_x_train))
+```
+Because the amount of data is too much, then the result of the square of the data is also large and will result in an error if it is selected as k because it is too large. therefore we use the function knn1() in this data.
+```{r,warning=FALSE,message=FALSE}
+predict_knn <- knn1(train = heart_x_train_scaled,
+                test = heart_x_test_scaled,
+                cl = heart_y_train$HeartDisease)
+```
+
+## Model Evaluation
+```{r}
+confusionMatrix(data = predict_knn,reference = heart_y_test$HeartDisease, positive = "Yes")
+```
+
+# Conclusion
+In this heart disease case study, we will prioritize recall metrics over accuracy. We prioritize recall metrics because we have to anticipate people who actually have heart disease but are predicted to be healthy. From the model that has been made, the logistic regression model is the best model because it has greater sensitivity/recall, which is 75% compared to the KNN model, which is 26%.
